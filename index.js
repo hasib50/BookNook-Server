@@ -40,7 +40,7 @@ function validId(id) {
 
 app.get("/health", (_req, res) => res.json({ status: "ok", service: "BookNook API" }));
 
-// Public: all books. Supports optional category and search query for.
+// Public: all books. Supports optional category and search query.
 app.get("/books", async (req, res) => {
   try {
     const filter = {};
@@ -60,5 +60,15 @@ app.get("/books", async (req, res) => {
   }
 });
 
-
+// One book (public endpoint; page access is controlled in the client).
+app.get("/books/:id", async (req, res) => {
+  try {
+    if (!validId(req.params.id)) return res.status(400).json({ message: "Invalid book ID." });
+    const book = await books.findOne({ _id: new ObjectId(req.params.id) });
+    if (!book) return res.status(404).json({ message: "Book not found." });
+    res.json(book);
+  } catch {
+    res.status(500).json({ message: "Could not load this book." });
+  }
+});
 
