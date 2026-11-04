@@ -142,3 +142,35 @@ app.delete("/books/:id", requireAuth, async (req, res) => {
   }
 });
 
+// Borrow: atomic availability decrement and duplicate-active-borrow protection.
+app.post("/borrows", requireAuth, async (req, res) => {
+  const bookId = req.body.bookId;
+  if (!validId(bookId)) return res.status(400).json({ message: "Invalid book ID." });
+  const id = new ObjectId(bookId);
+  try {
+    const duplicate = await borrows.findOne({ bookId: id, userEmail: req.user.email, status: "active" });
+    if (duplicate) return res.status(409).json({ message: "You already borrowed this book." });
+
+    const book = await books.findOneAndUpdate(
+      { _id: id, availableCopies: { $gt: 0 } },
+      { $inc: { availableCopies: -1 } },
+      { returnDocument: "after" }
+    );
+    if (!book) return res.status(409).json({ message: "Not available right now." });
+
+    const borrowedAt = new Date();
+    const returnAt = new Date(borrowedAt);
+    returnAt.setDate(returnAt.getDate() + 7);
+    const doc = {
+      bookId: id, bookTitle: book.title, bookImage: book.image,
+      userEmail: req.user.email, userName: req.user.name || req.user.email,
+      borrowDate: borrowedAt, returnDate: returnAt, status: "active"
+    };
+    const result = await borrows.insertOne(doc);
+    res.status(201).json({ ...doc, _id: result.insertedId });
+  } catch {
+    res.status(500).json({ message: "Could not borrow this book." });
+  }
+});
+
+
