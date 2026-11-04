@@ -95,3 +95,33 @@ app.post("/books", requireAuth, async (req, res) => {
   }
 });
 
+// Update – only the owner may edit.
+app.patch("/books/:id", requireAuth, async (req, res) => {
+  try {
+    if (!validId(req.params.id)) return res.status(400).json({ message: "Invalid book ID." });
+    const id = new ObjectId(req.params.id);
+    const existing = await books.findOne({ _id: id });
+    if (!existing) return res.status(404).json({ message: "Book not found." });
+    if (existing.addedBy.email !== req.user.email) return res.status(403).json({ message: "You can only edit your own books." });
+
+    const allowed = ["title", "author", "category", "image", "description"];
+    const update = {};
+    for (const key of allowed) {
+      if (typeof req.body[key] === "string" && req.body[key].trim()) update[key] = req.body[key].trim();
+    }
+    if (req.body.totalCopies !== undefined) {
+      const copies = Number(req.body.totalCopies);
+      if (!Number.isInteger(copies) || copies < (existing.totalCopies - existing.availableCopies)) {
+        return res.status(400).json({ message: "Total copies cannot be lower than the number currently borrowed." });
+      }
+      update.totalCopies = copies;
+      update.availableCopies = copies - (existing.totalCopies - existing.availableCopies);
+    }
+    update.updatedAt = new Date();
+    await books.updateOne({ _id: id }, { $set: update });
+    res.json(await books.findOne({ _id: id }));
+  } catch {
+    res.status(500).json({ message: "Could not update the book." });
+  }
+});
+
