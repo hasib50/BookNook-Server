@@ -72,3 +72,26 @@ app.get("/books/:id", async (req, res) => {
   }
 });
 
+// Add book – authenticated user is always taken from the verified token.
+app.post("/books", requireAuth, async (req, res) => {
+  try {
+    const { title, author, category, image, description, totalCopies } = req.body;
+    if (![title, author, category, image, description].every(v => typeof v === "string" && v.trim())) {
+      return res.status(400).json({ message: "Please complete all book fields." });
+    }
+    const copies = Number(totalCopies);
+    if (!Number.isInteger(copies) || copies < 1) return res.status(400).json({ message: "Total copies must be at least 1." });
+
+    const doc = {
+      title: title.trim(), author: author.trim(), category, image: image.trim(),
+      description: description.trim(), totalCopies: copies, availableCopies: copies,
+      addedBy: { name: req.user.name || req.user.email, email: req.user.email },
+      createdAt: new Date(), updatedAt: new Date()
+    };
+    const result = await books.insertOne(doc);
+    res.status(201).json({ ...doc, _id: result.insertedId });
+  } catch {
+    res.status(500).json({ message: "Could not add the book." });
+  }
+});
+
