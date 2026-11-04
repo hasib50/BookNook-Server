@@ -125,3 +125,20 @@ app.patch("/books/:id", requireAuth, async (req, res) => {
   }
 });
 
+// Delete – owner only; do not delete while active borrows exist.
+app.delete("/books/:id", requireAuth, async (req, res) => {
+  try {
+    if (!validId(req.params.id)) return res.status(400).json({ message: "Invalid book ID." });
+    const id = new ObjectId(req.params.id);
+    const book = await books.findOne({ _id: id });
+    if (!book) return res.status(404).json({ message: "Book not found." });
+    if (book.addedBy.email !== req.user.email) return res.status(403).json({ message: "You can only delete your own books." });
+    const active = await borrows.countDocuments({ bookId: id, status: "active" });
+    if (active > 0) return res.status(409).json({ message: "This book has active borrows and cannot be deleted yet." });
+    await books.deleteOne({ _id: id });
+    res.json({ message: "Book deleted." });
+  } catch {
+    res.status(500).json({ message: "Could not delete the book." });
+  }
+});
+
