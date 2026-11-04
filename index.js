@@ -174,3 +174,12 @@ app.post("/borrows", requireAuth, async (req, res) => {
 });
 
 
+// Only the signed-in user's borrow records.
+app.get("/borrows", requireAuth, async (req, res) => {
+  try {
+    const result = await borrows.find({ userEmail: req.user.email, status: "active" }).sort({ borrowDate: -1 }).toArray();
+    res.json(result);
+  } catch {
+    res.status(500).json({ message: "Could not load your borrowed books." });
+  }
+});
