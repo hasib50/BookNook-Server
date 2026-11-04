@@ -183,3 +183,39 @@ app.get("/borrows", requireAuth, async (req, res) => {
     res.status(500).json({ message: "Could not load your borrowed books." });
   }
 });
+
+// Return a book and restore one available copy.
+app.delete("/borrows/:id", requireAuth, async (req, res) => {
+  try {
+    if (!validId(req.params.id)) return res.status(400).json({ message: "Invalid borrow ID." });
+    const id = new ObjectId(req.params.id);
+    const borrow = await borrows.findOne({ _id: id, userEmail: req.user.email, status: "active" });
+    if (!borrow) return res.status(404).json({ message: "Active borrow not found." });
+    const result = await borrows.updateOne(
+      { _id: id, userEmail: req.user.email, status: "active" },
+      { $set: { status: "returned", returnedAt: new Date() } }
+    );
+    if (!result.modifiedCount) return res.status(409).json({ message: "This book was already returned." });
+    await books.updateOne({ _id: borrow.bookId }, { $inc: { availableCopies: 1 } });
+    res.json({ message: "Book returned successfully." });
+  } catch {
+    res.status(500).json({ message: "Could not return this book." });
+  }
+});
+
+async function start() {
+  if (!process.env.MONGODB_URI || !process.env.JWT_SECRET) {
+    throw new Error("MONGODB_URI and JWT_SECRET must be configured in server/.env");
+  }
+  await client.connect();
+  const db = client.db(process.env.DB_NAME || "booknook");
+  books = db.collection("books");
+  borrows = db.collection("borrows");
+  await borrows.createIndex({ bookId: 1, userEmail: 1, status: 1 });
+  await books.createIndex({ createdAt: -1 });
+  app.listen(PORT, () => console.log(`BookNook API running on http://localhost:${PORT}`));
+}
+start().catch(error => {
+  console.error("Server startup failed:", error.message);
+  process.exit(1);
+});
