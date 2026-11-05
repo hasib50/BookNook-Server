@@ -6,7 +6,10 @@ import { MongoClient, ObjectId } from "mongodb";
 
 import dns from "node:dns";
 
-dns.setServers(["8.8.8.8", "8.8.4.4"]);
+// Local-only DNS workaround. Hosting providers don't need it.
+if (!process.env.VERCEL && process.env.NODE_ENV !== "production") {
+  dns.setServers(["8.8.8.8", "8.8.4.4"]);
+}
 
 dotenv.config();
 
@@ -21,6 +24,39 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json({ limit: "2mb" }));
+
+// Connect to MongoDB once and reuse the connection between requests.
+let dbPromise;
+
+function connectDb() {
+  if (!dbPromise) {
+    dbPromise = (async () => {
+      if (!process.env.MONGODB_URI || !process.env.JWT_SECRET) {
+        throw new Error("MONGODB_URI and JWT_SECRET must be configured.");
+      }
+      await client.connect();
+      const db = client.db(process.env.DB_NAME || "booknook");
+      books = db.collection("books");
+      borrows = db.collection("borrows");
+      await borrows.createIndex({ bookId: 1, userEmail: 1, status: 1 });
+      await books.createIndex({ createdAt: -1 });
+    })().catch((error) => {
+      dbPromise = undefined;
+      throw error;
+    });
+  }
+  return dbPromise;
+}
+
+app.use(async (_req, res, next) => {
+  try {
+    await connectDb();
+    next();
+  } catch (error) {
+    console.error("Database connection failed:", error.message);
+    res.status(500).json({ message: "Database connection failed." });
+  }
+});
 
 function requireAuth(req, res, next) {
   const header = req.headers.authorization || "";
@@ -202,19 +238,18 @@ app.delete("/borrows/:id", requireAuth, async (req, res) => {
   }
 });
 
-async function start() {
-  if (!process.env.MONGODB_URI || !process.env.JWT_SECRET) {
-    throw new Error("MONGODB_URI and JWT_SECRET must be configured in server/.env");
-  }
-  await client.connect();
-  const db = client.db(process.env.DB_NAME || "booknook");
-  books = db.collection("books");
-  borrows = db.collection("borrows");
-  await borrows.createIndex({ bookId: 1, userEmail: 1, status: 1 });
-  await books.createIndex({ createdAt: -1 });
-  app.listen(PORT, () => console.log(`BookNook API running on http://localhost:${PORT}`));
+// Local development: start the HTTP server. On Vercel the app is exported instead.
+if (!process.env.VERCEL) {
+  connectDb()
+    .then(() => {
+      app.listen(PORT, () =>
+        console.log(`BookNook API running on http://localhost:${PORT}`)
+      );
+    })
+    .catch((error) => {
+      console.error("Server startup failed:", error.message);
+      process.exit(1);
+    });
 }
-start().catch(error => {
-  console.error("Server startup failed:", error.message);
-  process.exit(1);
-});
+
+export default app;
