@@ -38,7 +38,6 @@ function validId(id) {
   return ObjectId.isValid(id);
 }
 
-app.get("/health", (_req, res) => res.json({ status: "ok", service: "BookNook API" }));
 
 // Public: all books. Supports optional category and search query.
 app.get("/books", async (req, res) => {
